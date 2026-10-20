@@ -74,8 +74,8 @@ const todayISO=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMo
 const monthOf=date=>date.slice(0,7);
 function dateISO(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function lastWeekday(year,monthIndex,weekday){const d=new Date(year,monthIndex+1,0);d.setDate(d.getDate()-((d.getDay()-weekday+7)%7));return d;}
-function periodBounds(month){const [y,m]=month.split('-').map(Number);return {start:dateISO(lastWeekday(y,m-2,2)),end:dateISO(lastWeekday(y,m-1,1))};}
-function periodKeyForDate(date){const [y,m]=date.slice(0,7).split('-').map(Number);const end=dateISO(lastWeekday(y,m-1,1));if(date>end){const d=new Date(y,m,1);return dateISO(d).slice(0,7);}return date.slice(0,7);}
+function periodBounds(month){const [y,m]=month.split('-').map(Number);return {start:dateISO(lastWeekday(y,m-2,1)),end:dateISO(lastWeekday(y,m-1,0))};}
+function periodKeyForDate(date){const [y,m]=date.slice(0,7).split('-').map(Number);const end=dateISO(lastWeekday(y,m-1,0));if(date>end){const d=new Date(y,m,1);return dateISO(d).slice(0,7);}return date.slice(0,7);}
 function periodDates(month){const {start,end}=periodBounds(month),out=[];const d=new Date(start+'T12:00:00');const stop=new Date(end+'T12:00:00');while(d<=stop){out.push(dateISO(d));d.setDate(d.getDate()+1);}return out;}
 const num=id=>Math.max(0,Number($(id).value)||0);
 const money=n=>new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:2}).format(Number(n)||0);
