@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#10141d">
+<title>Учёт смен</title>
+<style>
+:root{color-scheme:dark;--bg:#0d1118;--panel:#161c27;--panel2:#1c2431;--line:#303a4b;--text:#f1f5fb;--muted:#aab5c6;--accent:#72e0b0;--accent2:#9cb8ff;--danger:#ff9a9a}
+*{box-sizing:border-box}body{margin:0;background:linear-gradient(150deg,#111827,#0b0f16 55%);color:var(--text);font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:1000px;margin:auto;padding:22px 15px 50px}header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:20px}
+h1{font-size:28px;margin:0 0 5px;letter-spacing:-.6px}h2{font-size:19px;margin:0 0 15px}p{margin:4px 0;color:var(--muted)}.pill{background:#20372f;color:var(--accent);padding:7px 11px;border-radius:30px;font-size:13px}
+.tabs{display:flex;gap:8px;margin:18px 0;flex-wrap:wrap}.tab,button{border:1px solid var(--line);background:var(--panel2);color:var(--text);padding:11px 14px;border-radius:12px;font:inherit;cursor:pointer}.tab.active{background:var(--accent);color:#0c1713;border-color:var(--accent);font-weight:700}
+.panel{background:rgba(22,28,39,.96);border:1px solid var(--line);border-radius:18px;padding:18px;margin:12px 0;box-shadow:0 10px 35px #0002}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.field{display:flex;flex-direction:column;gap:6px}.field label{color:var(--muted);font-size:13px}.field input{width:100%;background:#0e131c;color:var(--text);border:1px solid #394558;border-radius:11px;padding:13px;font:inherit;outline:none}.field input:focus{border-color:var(--accent2);box-shadow:0 0 0 2px #9cb8ff20}
+.step{display:flex;gap:10px;align-items:center;margin:15px 0 6px;color:var(--accent2);font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.7px}.step:before{content:"";width:25px;height:2px;background:var(--accent2)}
+.metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}.metric{padding:13px;background:#0e141e;border:1px solid #2a3545;border-radius:13px}.metric small{display:block;color:var(--muted);font-size:12px;margin-bottom:5px}.metric strong{font-size:20px;letter-spacing:-.4px}.metric.primary{border-color:#387b63;background:#14271f}.metric.primary strong{color:var(--accent)}
+.actions{display:flex;gap:9px;flex-wrap:wrap;margin-top:16px}.primaryBtn{background:var(--accent);color:#0b1712;border-color:var(--accent);font-weight:750}.secondary{background:transparent}.danger{color:var(--danger)}.notice{font-size:13px;color:var(--muted);margin-top:12px}.hidden{display:none!important}
+.summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.summary .metric strong{font-size:19px}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;margin-top:15px}table{border-collapse:collapse;width:100%;min-width:780px;background:#111722}th,td{text-align:right;padding:11px 12px;border-bottom:1px solid #293242;white-space:nowrap;font-size:13px}th{color:var(--muted);font-weight:600;background:#1a2230;position:sticky;top:0}th:first-child,td:first-child{text-align:left}tr:last-child td{border-bottom:0}.worked{color:var(--accent)}.off{color:#8b96a8}.monthnav{display:flex;align-items:center;gap:10px}.monthnav button{padding:8px 12px}.monthnav strong{min-width:120px;text-align:center}.tiny{font-size:12px;color:var(--muted)}
+@media(min-width:650px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}.metrics,.summary{grid-template-columns:repeat(4,minmax(0,1fr))}.wide{grid-column:span 2}}
+@media(max-width:420px){main{padding:16px 11px 35px}h1{font-size:24px}.panel{padding:14px}.grid{gap:10px}.field input{padding:12px 10px}.metric strong{font-size:18px}.tabs .tab{flex:1;padding:10px 8px}}
+</style>
+</head>
+<body>
+<main>
+<header><div><h1>Учёт смен</h1><p>Доходы, чаевые и расчёт выплаты</p></div><div class="pill" id="todayPill">Сегодня</div></header>
+<div class="tabs"><button class="tab active" data-tab="shift">Смена</button><button class="tab" data-tab="report">Отчёт за месяц</button></div>
+<section id="shiftView">
+ <div class="panel">
+  <h2>Данные смены</h2>
+  <div class="grid">
+   <div class="field"><label for="shiftDate">Дата смены</label><input id="shiftDate" type="date"></div>
+   <div class="field"><label for="bill">Сумма счетов, ₽</label><input id="bill" type="number" min="0" step="0.01" placeholder="0"></div>
+   <div class="field"><label for="tipsCash">Чаевые наличными, ₽</label><input id="tipsCash" type="number" min="0" step="0.01" placeholder="0"></div>
+   <div class="field"><label for="tipsCard">Чаевые по безналу, ₽</label><input id="tipsCard" type="number" min="0" step="0.01" placeholder="0"></div>
+   <div class="field"><label for="extensions">Продления, ₽</label><input id="extensions" type="number" min="0" step="0.01" placeholder="0"></div>
+   <div class="field"><label for="hookahs">Количество кальянов</label><input id="hookahs" type="number" min="0" step="1" placeholder="0"></div>
+  </div>
+  <div class="step">Расчёт смены</div>
+  <div class="metrics">
+   <div class="metric"><small>5% от счетов</small><strong id="billCut">0 ₽</strong></div>
+   <div class="metric"><small>Безнал − 10%</small><strong id="cardNet">0 ₽</strong></div>
+   <div class="metric"><small>Кальяны (400 ₽/шт.)</small><strong id="hookahPay">0 ₽</strong></div>
+   <div class="metric primary"><small>Доход за смену</small><strong id="shiftTotal">0 ₽</strong></div>
+  </div>
+  <p class="notice">Доход за смену = 2 000 ₽ + 5% от счетов + чаевые наличными + 90% безналичных чаевых + продления + 400 ₽ за каждый кальян.</p>
+  <div class="actions"><button class="primaryBtn" id="saveShift">Сохранить смену</button><button id="clearForm" class="secondary">Очистить поля</button><button id="deleteShift" class="secondary danger">Удалить смену за дату</button></div>
+  <p class="notice" id="saveStatus" role="status">Заполненные смены автоматически попадают в месячный отчёт. Дни без сохранённой смены считаются выходными.</p>
+ </div>
+ <div class="panel"><h2>Текущий месяц</h2><div class="summary" id="quickSummary"></div></div>
+</section>
+<section id="reportView" class="hidden">
+ <div class="panel">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap"><h2 style="margin:0">Месячный отчёт</h2><div class="monthnav"><button id="prevMonth" aria-label="Предыдущий месяц">‹</button><strong id="monthTitle"></strong><button id="nextMonth" aria-label="Следующий месяц">›</button></div></div>
+  <div class="grid" style="margin-top:16px">
+   <div class="field"><label for="advance">Аванс за месяц, ₽</label><input id="advance" type="number" min="0" step="0.01" placeholder="0"></div>
+  </div>
+  <div class="summary" id="monthSummary" style="margin-top:14px"></div>
+  <p class="notice">«К выплате» = общая зарплата − чаевые наличными − аванс. Аванс хранится отдельно для каждого месяца.</p>
+  <div class="tablewrap"><table><thead><tr><th>Дата</th><th>Статус</th><th>Счета</th><th>5%</th><th>Наличные</th><th>Безнал чистыми</th><th>Продления</th><th>Кальяны</th><th>Зарплата за день</th></tr></thead><tbody id="reportBody"></tbody></table></div>
+  <div class="actions"><button id="exportCsv" class="primaryBtn">Скачать таблицу CSV</button><button id="exportJson" class="secondary">Резервная копия данных</button><button id="importButton" class="secondary">Импорт копии</button><input id="importFile" type="file" accept=".json,application/json" class="hidden"></div>
+  <p class="notice">Данные хранятся локально в этом браузере на этом устройстве. Экспортируй резервную копию, если не хочешь потерять историю при очистке данных браузера.</p>
+ </div>
+</section>
+</main>
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const KEYS='waiterShiftTracker_v1';
+let data={shifts:{},advances:{}};
+try{const raw=localStorage.getItem(KEYS);if(raw){const parsed=JSON.parse(raw);if(parsed&&parsed.shifts&&parsed.advances)data=parsed;}}catch(e){}
+const todayISO=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')};
+const monthOf=date=>date.slice(0,7);
+const num=id=>Math.max(0,Number($(id).value)||0);
+const money=n=>new Intl.NumberFormat('ru-RU',{style:'currency',currency:'RUB',maximumFractionDigits:2}).format(Number(n)||0);
+const fmtDate=s=>{const [y,m,d]=s.split('-');return d+'.'+m+'.'+y};
+function calc(s){const bill=+s.bill||0,cash=+s.tipsCash||0,card=+s.tipsCard||0,ext=+s.extensions||0,hooks=+s.hookahs||0;const cut=bill*.05,cardNet=card*.9,hookPay=hooks*400;return {bill,cash,card,ext,hooks,cut,cardNet,hookPay,total:2000+cut+cash+cardNet+ext+hookPay};}
+function persist(){try{localStorage.setItem(KEYS,JSON.stringify(data));}catch(e){alert('Не удалось сохранить данные в браузере. Проверь свободное место и настройки приватности.');}}
+function getMonthShifts(month){return Object.keys(data.shifts).filter(d=>monthOf(d)===month).sort();}
+function monthTotals(month){const dates=getMonthShifts(month),sum={days:dates.length,bill:0,cut:0,cash:0,cardNet:0,ext:0,hooks:0,salary:0};dates.forEach(d=>{const c=calc(data.shifts[d]);sum.bill+=c.bill;sum.cut+=c.cut;sum.cash+=c.cash;sum.cardNet+=c.cardNet;sum.ext+=c.ext;sum.hooks+=c.hooks;sum.salary+=c.total;});sum.advance=+data.advances[month]||0;sum.payable=sum.salary-sum.cash-sum.advance;return sum;}
+function metric(label,value,primary=false){return '<div class="metric'+(primary?' primary':'')+'"><small>'+label+'</small><strong>'+value+'</strong></div>';}
+function renderQuick(){const month=monthOf($('shiftDate').value||todayISO()),t=monthTotals(month);$('quickSummary').innerHTML=metric('Отработано смен',t.days)+metric('Общая зарплата',money(t.salary),true)+metric('Чаевые наличными',money(t.cash))+metric('К выплате',money(t.payable),true);}
+function renderReport(){const month=currentMonth;const [y,m]=month.split('-').map(Number);$('monthTitle').textContent=new Date(y,m-1,1).toLocaleDateString('ru-RU',{month:'long',year:'numeric'});$('advance').value=data.advances[month]??'';const t=monthTotals(month);$('monthSummary').innerHTML=metric('Отработано смен',t.days)+metric('Общая зарплата',money(t.salary),true)+metric('Чаевые наличными',money(t.cash))+metric('Аванс',money(t.advance))+metric('К выплате',money(t.payable),true);
+const daysInMonth=new Date(y,m,0).getDate();let rows='';for(let day=1;day<=daysInMonth;day++){const date=month+'-'+String(day).padStart(2,'0');const s=data.shifts[date];if(s){const c=calc(s);rows+='<tr><td>'+fmtDate(date)+'</td><td class="worked">Смена</td><td>'+money(c.bill)+'</td><td>'+money(c.cut)+'</td><td>'+money(c.cash)+'</td><td>'+money(c.cardNet)+'</td><td>'+money(c.ext)+'</td><td>'+c.hooks+'</td><td><b>'+money(c.total)+'</b></td></tr>';}else{rows+='<tr><td>'+fmtDate(date)+'</td><td class="off">Выходной</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td><td>—</td></tr>';}}$('reportBody').innerHTML=rows;}
+function renderAll(){renderQuick();renderReport();}
+function loadDate(date){$('shiftDate').value=date;const s=data.shifts[date]||{};['bill','tipsCash','tipsCard','extensions','hookahs'].forEach(id=>$(id).value=s[id]??'');$('saveStatus').textContent=data.shifts[date]?'Для этой даты уже сохранена смена. Измени данные и нажми «Сохранить смену».':'Заполненные смены автоматически попадают в месячный отчёт. Дни без сохранённой смены считаются выходными.';updateCalc();renderQuick();}
+function updateCalc(){const c=calc({bill:num('bill'),tipsCash:num('tipsCash'),tipsCard:num('tipsCard'),extensions:num('extensions'),hookahs:num('hookahs')});$('billCut').textContent=money(c.cut);$('cardNet').textContent=money(c.cardNet);$('hookahPay').textContent=money(c.hookPay);$('shiftTotal').textContent=money(c.total);}
+let currentMonth=monthOf(todayISO());
+$('todayPill').textContent='Сегодня · '+fmtDate(todayISO());
+$('shiftDate').value=todayISO();
+['bill','tipsCash','tipsCard','extensions','hookahs'].forEach(id=>$(id).addEventListener('input',updateCalc));
+$('shiftDate').addEventListener('change',()=>{if($('shiftDate').value)loadDate($('shiftDate').value);});
+$('saveShift').addEventListener('click',()=>{const date=$('shiftDate').value;if(!date){alert('Выбери дату смены.');return;}data.shifts[date]={bill:num('bill'),tipsCash:num('tipsCash'),tipsCard:num('tipsCard'),extensions:num('extensions'),hookahs:Math.floor(num('hookahs'))};persist();currentMonth=monthOf(date);renderAll();$('saveStatus').textContent='Смена за '+fmtDate(date)+' сохранена.';});
+$('clearForm').addEventListener('click',()=>{['bill','tipsCash','tipsCard','extensions','hookahs'].forEach(id=>$(id).value='');updateCalc();});
+$('deleteShift').addEventListener('click',()=>{const date=$('shiftDate').value;if(!date)return;if(!data.shifts[date]){alert('За эту дату нет сохранённой смены.');return;}if(confirm('Удалить сохранённую смену за '+fmtDate(date)+'? День будет считаться выходным.')){delete data.shifts[date];persist();loadDate(date);renderAll();$('saveStatus').textContent='Смена удалена. Эта дата считается выходным.';}});
+$('advance').addEventListener('input',()=>{data.advances[currentMonth]=Math.max(0,Number($('advance').value)||0);persist();renderReport();renderQuick();});
+$('prevMonth').addEventListener('click',()=>{const [y,m]=currentMonth.split('-').map(Number);currentMonth=new Date(y,m-2,1).toISOString().slice(0,7);renderReport();});
+$('nextMonth').addEventListener('click',()=>{const [y,m]=currentMonth.split('-').map(Number);currentMonth=new Date(y,m,1).toISOString().slice(0,7);renderReport();});
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===b));$('shiftView').classList.toggle('hidden',b.dataset.tab!=='shift');$('reportView').classList.toggle('hidden',b.dataset.tab!=='report');if(b.dataset.tab==='report')renderReport();}));
+$('exportCsv').addEventListener('click',()=>{const month=currentMonth,[y,m]=month.split('-').map(Number),lines=[['Дата','Статус','Сумма счетов','5% от счетов','Чаевые наличными','Безналичные чаевые после вычета 10%','Продления','Кальяны','Зарплата за день']];for(let d=1;d<=new Date(y,m,0).getDate();d++){const date=month+'-'+String(d).padStart(2,'0'),s=data.shifts[date];if(!s){lines.push([fmtDate(date),'Выходной','','','','','','','']);continue;}const c=calc(s);lines.push([fmtDate(date),'Смена',c.bill,c.cut,c.cash,c.cardNet,c.ext,c.hooks,c.total]);}const t=monthTotals(month);lines.push([],['ИТОГО','',''+t.bill,t.cut,t.cash,t.cardNet,t.ext,t.hooks,t.salary],['Аванс',t.advance],['К выплате',t.payable]);const csv='\ufeff'+lines.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\r\n');download('\u041e\u0442\u0447\u0451\u0442_'+month+'.csv',csv,'text/csv;charset=utf-8;');});
+$('exportJson').addEventListener('click',()=>download('backup_shifts_'+todayISO()+'.json',JSON.stringify(data,null,2),'application/json'));
+$('importButton').addEventListener('click',()=>$('importFile').click());
+$('importFile').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;try{const obj=JSON.parse(await f.text());if(!obj||typeof obj.shifts!=='object'||typeof obj.advances!=='object')throw new Error();if(confirm('Импорт заменит текущие данные. Продолжить?')){data=obj;persist();loadDate($('shiftDate').value||todayISO());renderAll();alert('Данные импортированы.');}}catch(err){alert('Не удалось импортировать файл. Выбери резервную копию JSON, созданную этим сайтом.');}e.target.value='';});
+function download(name,content,type){const blob=new Blob([content],{type}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);}
+loadDate(todayISO());renderAll();
+})();
+</script>
+</body>
+</html>
