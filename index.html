@@ -60,11 +60,12 @@ h1{font-size:28px;margin:0 0 5px;letter-spacing:-.6px}h2{font-size:19px;margin:0
   <div class="summary" id="monthSummary" style="margin-top:14px"></div>
   <p class="notice">«К выплате» = общая зарплата − чаевые наличными − аванс. Аванс хранится отдельно для каждого месяца.</p>
   <div class="tablewrap"><table><thead><tr><th>Дата</th><th>Статус</th><th>Счета</th><th>5%</th><th>Наличные</th><th>Безнал чистыми</th><th>Продления</th><th>Кальяны</th><th>Ставка за смену</th><th>Зарплата за день</th></tr></thead><tbody id="reportBody"></tbody></table></div>
-  <div class="actions"><button id="exportCsv" class="primaryBtn">Скачать Excel (.xlsx)</button><button id="exportJson" class="secondary">Резервная копия данных</button><button id="importButton" class="secondary">Импорт копии</button><input id="importFile" type="file" accept=".json,application/json" class="hidden"></div>
+  <div class="actions"><button id="exportCsv" class="primaryBtn">Скачать Excel (.xlsx)</button><button id="exportJson" class="secondary">Резервная копия данных</button><button id="importButton" class="secondary">Импорт копии JSON</button><input id="importFile" type="file" accept=".json,application/json" class="hidden"><button id="importExcelButton" class="secondary">Импорт таблицы Excel</button><input id="importExcelFile" type="file" accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="hidden"></div>
   <p class="notice">Данные хранятся локально в этом браузере на этом устройстве. Экспортируй резервную копию, если не хочешь потерять историю при очистке данных браузера.</p>
  </div>
 </section>
 </main>
+
 <script>
 (function(){
 const $=id=>document.getElementById(id);
@@ -177,6 +178,133 @@ function makeZip(files){
 function downloadBlob(name,blob){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);}
 $('exportJson').addEventListener('click',()=>download('backup_shifts_'+todayISO()+'.json',JSON.stringify(data,null,2),'application/json'));
 $('importButton').addEventListener('click',()=>$('importFile').click());
+let xlsxLoading=null;
+function ensureXLSX(){
+ if(window.XLSX)return Promise.resolve(true);
+ if(xlsxLoading)return xlsxLoading;
+ const urls=[
+  'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+  'https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js'
+ ];
+ xlsxLoading=(async()=>{for(const url of urls){try{await new Promise((resolve,reject)=>{const script=document.createElement('script');script.src=url;script.onload=resolve;script.onerror=()=>{script.remove();reject(new Error('load failed'));};document.head.appendChild(script);});if(window.XLSX)return true;}catch(_){}}return false;})();
+ return xlsxLoading;
+}
+async function unzipEntry(buffer,wanted){
+ const bytes=new Uint8Array(buffer),view=new DataView(buffer);let eocd=-1;
+ for(let i=bytes.length-22;i>=Math.max(0,bytes.length-65557);i--){if(view.getUint32(i,true)===0x06054b50){eocd=i;break;}}
+ if(eocd<0)throw new Error('Не найден ZIP-каталог XLSX');
+ const count=view.getUint16(eocd+10,true),centralOffset=view.getUint32(eocd+16,true);let p=centralOffset;
+ for(let i=0;i<count;i++){
+  if(view.getUint32(p,true)!==0x02014b50)throw new Error('Повреждён ZIP-каталог XLSX');
+  const method=view.getUint16(p+10,true),compressedSize=view.getUint32(p+20,true),nameLen=view.getUint16(p+28,true),extraLen=view.getUint16(p+30,true),commentLen=view.getUint16(p+32,true),localOffset=view.getUint32(p+42,true);
+  const name=new TextDecoder().decode(bytes.slice(p+46,p+46+nameLen));
+  if(name===wanted){
+   if(view.getUint32(localOffset,true)!==0x04034b50)throw new Error('Повреждён файл внутри XLSX');
+   const localNameLen=view.getUint16(localOffset+26,true),localExtraLen=view.getUint16(localOffset+28,true),begin=localOffset+30+localNameLen+localExtraLen;
+   const compressed=bytes.slice(begin,begin+compressedSize);if(method===0)return compressed.buffer;
+   if(method!==8)throw new Error('Неподдерживаемый тип сжатия XLSX');
+   if(typeof DecompressionStream==='undefined')throw new Error('Браузер не поддерживает чтение XLSX без интернета');
+   const stream=new Blob([compressed]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+   return await new Response(stream).arrayBuffer();
+  }
+  p+=46+nameLen+extraLen+commentLen;
+ }
+ return null;
+}
+function xmlText(el){return Array.from(el.getElementsByTagName('t')).map(n=>n.textContent||'').join('');}
+async function readXlsxNative(file){
+ const buffer=await file.arrayBuffer();
+ const sharedBuffer=await unzipEntry(buffer,'xl/sharedStrings.xml');const sheetBuffer=await unzipEntry(buffer,'xl/worksheets/sheet1.xml');
+ if(!sheetBuffer)throw new Error('В книге не найден первый лист');
+ const parser=new DOMParser();let shared=[];
+ if(sharedBuffer){const doc=parser.parseFromString(new TextDecoder().decode(sharedBuffer),'application/xml');shared=Array.from(doc.getElementsByTagName('si')).map(xmlText);}
+ const doc=parser.parseFromString(new TextDecoder().decode(sheetBuffer),'application/xml');
+ if(doc.getElementsByTagName('parsererror').length)throw new Error('Не удалось разобрать XML листа Excel');
+ const rowEls=Array.from(doc.getElementsByTagName('row'));const rows=[];
+ const colIndex=ref=>{const letters=(String(ref).match(/^[A-Z]+/i)||['A'])[0].toUpperCase();let n=0;for(const ch of letters)n=n*26+ch.charCodeAt(0)-64;return n-1;};
+ for(const rowEl of rowEls){const rowNum=Number(rowEl.getAttribute('r'))||rows.length+1;const row=[];for(const cell of Array.from(rowEl.getElementsByTagName('c'))){const idx=colIndex(cell.getAttribute('r'));const type=cell.getAttribute('t');let val=null;const v=cell.getElementsByTagName('v')[0];if(type==='s'&&v)val=shared[Number(v.textContent)]??'';else if(type==='inlineStr')val=xmlText(cell);else if(v){const raw=v.textContent??'';val=raw!==''&&Number.isFinite(Number(raw))?Number(raw):raw;}row[idx]=val;}rows[rowNum-1]=row;}
+ return rows;
+}
+$('importExcelButton').addEventListener('click',()=>$('importExcelFile').click());
+const ruMonths={'январь':1,'января':1,'февраль':2,'февраля':2,'март':3,'марта':3,'апрель':4,'апреля':4,'май':5,'мая':5,'июнь':6,'июня':6,'июль':7,'июля':7,'август':8,'августа':8,'сентябрь':9,'сентября':9,'октябрь':10,'октября':10,'ноябрь':11,'ноября':11,'декабрь':12,'декабря':12};
+function excelDateToISO(value,yearHint){
+ if(value instanceof Date&&!isNaN(value))return dateISO(value);
+ if(typeof value==='number'&&window.XLSX&&XLSX.SSF){const d=XLSX.SSF.parse_date_code(value);if(d&&d.y&&d.m&&d.d)return dateISO(new Date(d.y,d.m-1,d.d));}
+ const str=String(value??'').trim().toLowerCase().replace(/ё/g,'е');
+ let m=str.match(/^(\d{1,2})[.\-/](\d{1,2})(?:[.\-/](\d{2,4}))?$/);
+ if(m){let y=m[3]?Number(m[3]):yearHint;if(y<100)y+=2000;const dt=new Date(y,Number(m[2])-1,Number(m[1]));if(dt.getFullYear()===y&&dt.getMonth()===Number(m[2])-1&&dt.getDate()===Number(m[1]))return dateISO(dt);return null;}
+ m=str.match(/^(\d{1,2})\s+([а-я]+)/i);if(!m)return null;
+ const day=Number(m[1]),month=ruMonths[m[2]];if(!month)return null;
+ const dt=new Date(yearHint,month-1,day);
+ if(dt.getFullYear()!==yearHint||dt.getMonth()!==month-1||dt.getDate()!==day)return null;
+ return dateISO(dt);
+}
+$('importExcelFile').addEventListener('change',async e=>{
+ const file=e.target.files[0];if(!file)return;
+ try{
+  let rows;
+  try{rows=await readXlsxNative(file);}
+  catch(nativeError){
+   if(!await ensureXLSX())throw nativeError;
+   const workbook=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});const sheet=workbook.Sheets[workbook.SheetNames[0]];if(!sheet)throw new Error('empty');rows=XLSX.utils.sheet_to_json(sheet,{header:1,raw:true,defval:null});
+  }
+  if(!rows.length)throw new Error('empty');
+  const header=rows[0].map(v=>String(v??'').trim().toLowerCase().replace(/ё/g,'е'));
+  const dateCol=header.findIndex(v=>/^(дата|число|день)$/.test(v));
+  let yearHint=new Date().getFullYear();
+  // The uploaded tables often have dates like “28 сентября” without a year.
+  // Use the current year, rolling into the next year only across December → January.
+  const parsed=[];let previousMonth=null,year=yearHint;
+  for(let ri=1;ri<rows.length;ri++){
+   const row=rows[ri]||[];const rawDate=row[dateCol>=0?dateCol:0];if(rawDate==null||String(rawDate).trim()==='')continue;
+   let iso=excelDateToISO(rawDate,year);let parsedMonth=null;
+   const dm=String(rawDate).trim().toLowerCase().replace(/ё/g,'е').match(/^(\d{1,2})\s+([а-я]+)/);
+   if(dm&&ruMonths[dm[2]])parsedMonth=ruMonths[dm[2]];
+   if(parsedMonth===1&&previousMonth===12)year++;
+   if(parsedMonth!==null){iso=excelDateToISO(rawDate,year);previousMonth=parsedMonth;}
+   if(!iso){
+    // Skip impossible calendar dates (e.g. “31 сентября”) rather than inventing a date.
+    continue;
+   }
+   const cells=Array.from({length:6},(_,i)=>{const v=row[i+1];return v==null||v===''?0:Number(v)||0;});
+   const hasData=cells.some(v=>v!==0);
+   parsed.push({date:iso,row:row,values:cells,hasData});
+  }
+  if(!parsed.length)throw new Error('no-dates');
+  const dates=parsed.map(x=>x.date).sort();const start=dates[0],end=dates[dates.length-1];
+  // Group dates by the site's reporting periods, not by calendar month.
+  // For example, Sep 28–Oct 25 belongs to the October report.
+  const monthCounts={};dates.forEach(d=>{const k=periodKeyForDate(d);monthCounts[k]=(monthCounts[k]||0)+1;});
+  const dominantMonth=Object.keys(monthCounts).sort((a,b)=>monthCounts[b]-monthCounts[a]||(a===currentMonth?-1:b===currentMonth?1:a.localeCompare(b)))[0];
+  const advancesToImport=[];
+  for(const row of rows){
+   const a=String(row?.[0]??'').trim().toLowerCase();
+   if(a==='аванс'||a==='аванс, ₽') {const n=Number(row[9]);if(Number.isFinite(n)&&n>=0)advancesToImport.push(n);}
+  }
+  // In the supplied format the advance is usually in J2, while the label is in J1.
+  let advanceValue=null;
+  if(rows[0]&&String(rows[0][9]??'').trim().toLowerCase().includes('аванс')){
+   for(let i=1;i<Math.min(rows.length,5);i++){const n=Number(rows[i]?.[9]);if(rows[i]?.[9]!=null&&rows[i]?.[9]!==''&&Number.isFinite(n)&&n>=0){advanceValue=n;break;}}
+  }
+  if(advanceValue===null&&advancesToImport.length)advanceValue=advancesToImport[0];
+  const shiftsToImport={};parsed.forEach(item=>{
+   const [base,ext,bill,cash,card,hooks]=item.values;
+   if(!item.hasData){shiftsToImport[item.date]=null;return;}
+   shiftsToImport[item.date]={baseSalary:base,bill:bill,tipsCash:cash,tipsCard:card,extensions:ext,hookahs:Math.floor(Math.max(0,hooks))};
+  });
+  const dateRangeLabel=fmtDate(start)+' — '+fmtDate(end);
+  if(!confirm('Импортировать таблицу «'+file.name+'» за '+dateRangeLabel+'?\n\nДанные смен внутри этого диапазона будут заменены данными из Excel, пустые строки станут выходными. Смены вне диапазона останутся без изменений.'))return;
+  let importedShifts=0;
+  parsed.forEach(item=>{const shift=shiftsToImport[item.date];if(shift){data.shifts[item.date]=shift;importedShifts++;}else delete data.shifts[item.date];});
+  if(advanceValue!==null)data.advances[dominantMonth]=advanceValue;
+  persist();currentMonth=dominantMonth;loadDate(previousDateISO());renderAll();
+  const visibleImportedShifts=Object.keys(data.shifts).filter(d=>{const b=periodBounds(dominantMonth);return d>=b.start&&d<=b.end;}).length;
+  if(visibleImportedShifts===0)throw new Error('Импорт прочитан, но в выбранном отчётном периоде нет сохранённых смен. Проверь структуру колонок файла.');
+  alert('Импорт завершён.\nРаспознано дат: '+parsed.length+'.\nСмен с данными: '+importedShifts+'.\nСмен в отчёте «'+dominantMonth+'»: '+visibleImportedShifts+'.\nОткрыт отчётный период: '+dominantMonth+'.'+(advanceValue!==null?'\nАванс: '+money(advanceValue)+'.':'')+'\nНекорректные даты вроде «31 сентября» пропущены.');
+ }catch(err){console.error('Excel import error:',err);alert(err.message==='no-dates'?'В файле не удалось найти корректные даты. Проверь, что даты записаны в первом столбце, например «28 сентября».':'Не удалось прочитать таблицу Excel: '+(err&&err.message?err.message:'неизвестная ошибка')+'. Нужен .xlsx с датами в первом столбце и данными в столбцах «Смена», «Продление», «Счёт», «Чай», «Чай б/н», «Кальяны шт.».');}
+ finally{e.target.value='';}
+});
 $('importFile').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;try{const obj=JSON.parse(await f.text());if(!obj||typeof obj.shifts!=='object'||typeof obj.advances!=='object')throw new Error();if(confirm('Импорт заменит текущие данные. Продолжить?')){data=obj;persist();loadDate($('shiftDate').value||previousDateISO());renderAll();alert('Данные импортированы.');}}catch(err){alert('Не удалось импортировать файл. Выбери резервную копию JSON, созданную этим сайтом.');}e.target.value='';});
 function download(name,content,type){const blob=new Blob([content],{type}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);}
 loadDate(previousDateISO());renderAll();
