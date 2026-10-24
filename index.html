@@ -60,7 +60,7 @@ h1{font-size:28px;margin:0 0 5px;letter-spacing:-.6px}h2{font-size:19px;margin:0
   <div class="summary" id="monthSummary" style="margin-top:14px"></div>
   <p class="notice">«К выплате» = общая зарплата − чаевые наличными − аванс. Аванс хранится отдельно для каждого месяца.</p>
   <div class="tablewrap"><table><thead><tr><th>Дата</th><th>Статус</th><th>Счета</th><th>5%</th><th>Наличные</th><th>Безнал чистыми</th><th>Продления</th><th>Кальяны</th><th>Ставка за смену</th><th>Зарплата за день</th></tr></thead><tbody id="reportBody"></tbody></table></div>
-  <div class="actions"><button id="exportCsv" class="primaryBtn">Скачать таблицу CSV</button><button id="exportJson" class="secondary">Резервная копия данных</button><button id="importButton" class="secondary">Импорт копии</button><input id="importFile" type="file" accept=".json,application/json" class="hidden"></div>
+  <div class="actions"><button id="exportCsv" class="primaryBtn">Скачать Excel (.xlsx)</button><button id="exportJson" class="secondary">Резервная копия данных</button><button id="importButton" class="secondary">Импорт копии</button><input id="importFile" type="file" accept=".json,application/json" class="hidden"></div>
   <p class="notice">Данные хранятся локально в этом браузере на этом устройстве. Экспортируй резервную копию, если не хочешь потерять историю при очистке данных браузера.</p>
  </div>
 </section>
@@ -105,7 +105,77 @@ $('advance').addEventListener('input',()=>{data.advances[currentMonth]=Math.max(
 $('prevMonth').addEventListener('click',()=>{const [y,m]=currentMonth.split('-').map(Number);currentMonth=dateISO(new Date(y,m-2,1)).slice(0,7);renderReport();});
 $('nextMonth').addEventListener('click',()=>{const [y,m]=currentMonth.split('-').map(Number);currentMonth=dateISO(new Date(y,m,1)).slice(0,7);renderReport();});
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===b));$('shiftView').classList.toggle('hidden',b.dataset.tab!=='shift');$('reportView').classList.toggle('hidden',b.dataset.tab!=='report');if(b.dataset.tab==='report')renderReport();}));
-$('exportCsv').addEventListener('click',()=>{const month=currentMonth,lines=[['Дата','Статус','Сумма счетов','5% от счетов','Чаевые наличными','Безналичные чаевые после вычета 10%','Продления','Кальяны','Ставка за смену','Зарплата за день']];for(const date of periodDates(month)){const s=data.shifts[date];if(!s){lines.push([fmtDate(date),'Выходной','','','','','','','','']);continue;}const c=calc(s);lines.push([fmtDate(date),'Смена',c.bill,c.cut,c.cash,c.cardNet,c.ext,c.hooks,c.base,c.total]);}const t=monthTotals(month),b=periodBounds(month);lines.push([],['Период',fmtDate(b.start)+' — '+fmtDate(b.end)],['ИТОГО','',''+t.bill,t.cut,t.cash,t.cardNet,t.ext,t.hooks,'',t.salary],['Аванс',t.advance],['К выплате',t.payable]);const csv='\\ufeff'+lines.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(';')).join('\\r\\n');download('Отчёт_'+month+'.csv',csv,'text/csv;charset=utf-8;');});$('exportJson').addEventListener('click',()=>download('backup_shifts_'+todayISO()+'.json',JSON.stringify(data,null,2),'application/json'));
+$('exportCsv').addEventListener('click',()=>{
+ const month=currentMonth, dates=periodDates(month), bounds=periodBounds(month), t=monthTotals(month);
+ const monthGen=['январь','февраль','март','апрель','май','июнь','июль','август','сентябрь','октябрь','ноябрь','декабрь'];
+ const counts={}; dates.forEach(date=>{const m=Number(date.slice(5,7));counts[m]=(counts[m]||0)+1;});
+ const selectedMonth=Number(month.split('-')[1]); let fileMonth=selectedMonth,maxCount=-1;
+ Object.keys(counts).forEach(k=>{const count=counts[k];if(count>maxCount||(count===maxCount&&Number(k)===selectedMonth)){maxCount=count;fileMonth=Number(k);}});
+ const filename='шарик ('+monthGen[fileMonth-1]+').xlsx';
+ const esc=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
+ const rows=[];
+ rows.push([{v:'ШАРИК — отчёт по сменам',s:1,span:10}]);
+ rows.push([{v:'Период: '+fmtDate(bounds.start)+' — '+fmtDate(bounds.end),s:2,span:10}]);
+ rows.push([]);
+ const headers=['Дата','Статус','Сумма счетов, ₽','5% от счетов, ₽','Чаевые наличными, ₽','Безналичные чаевые −10%, ₽','Продления, ₽','Кальяны, шт.','Ставка за смену, ₽','Зарплата за день, ₽'];
+ rows.push(headers.map(v=>({v,s:3})));
+ dates.forEach((date,i)=>{
+   const sh=data.shifts[date], st=i%2?5:4;
+   if(!sh){rows.push([{v:fmtDate(date),s:st},{v:'Выходной',s:6},...Array(8).fill(0).map(()=>({v:'—',s:6}))]);return;}
+   const c=calc(sh); rows.push([
+    {v:fmtDate(date),s:st},{v:'Смена',s:7},{v:c.bill,s:st},{v:c.cut,s:st},{v:c.cash,s:st},{v:c.cardNet,s:st},{v:c.ext,s:st},{v:c.hooks,s:st},{v:c.base,s:8},{v:c.total,s:9}
+   ]);
+ });
+ rows.push([]);
+ rows.push([{v:'ИТОГИ ЗА ПЕРИОД',s:10,span:2},{v:t.bill,s:11},{v:t.cut,s:11},{v:t.cash,s:11},{v:t.cardNet,s:11},{v:t.ext,s:11},{v:t.hooks,s:11},{v:'—',s:11},{v:t.salary,s:12}]);
+ rows.push([{v:'Отработано смен',s:13},{v:t.days,s:11}]);
+ rows.push([{v:'Аванс, ₽',s:13},{v:t.advance,s:8}]);
+ rows.push([{v:'К ВЫПЛАТЕ, ₽',s:14},{v:t.payable,s:15}]);
+ const colNames=n=>{let out='';while(n){let r=(n-1)%26;out=String.fromCharCode(65+r)+out;n=Math.floor((n-1)/26);}return out;};
+ const cellXml=(cell,r,c)=>{
+   if(cell===null||cell===undefined)return '';
+   if(typeof cell!=='object'||!('v'in cell))cell={v:cell,s:0};
+   const ref=colNames(c+1)+r, style=cell.s||0, span=cell.span||1;
+   let attrs=' r="'+ref+'" s="'+style+'"';
+   if(typeof cell.v==='number'&&Number.isFinite(cell.v))return '<c'+attrs+'><v>'+cell.v+'</v></c>';
+   return '<c'+attrs+' t="inlineStr"><is><t xml:space="preserve">'+esc(cell.v)+'</t></is></c>';
+ };
+ const sheetRows=rows.map((row,ri)=>{
+   const rn=ri+1; if(!row.length)return '<row r="'+rn+'" ht="8" customHeight="1"/>';
+   let cells='',col=0;
+   row.forEach(cell=>{if(cell&&cell.span){cells+=cellXml(cell,rn,col);col+=cell.span;}else{cells+=cellXml(cell,rn,col);col++;}});
+   const height=ri===0?32:ri===1?24:ri===3?38:(ri>=rows.length-4?25:22);
+   return '<row r="'+rn+'" ht="'+height+'" customHeight="1">'+cells+'</row>';
+ }).join('');
+ const mergeRefs=[]; rows.forEach((row,ri)=>row.forEach((cell,ci)=>{if(cell&&cell.span&&cell.span>1)mergeRefs.push(colNames(ci+1)+(ri+1)+':'+colNames(ci+cell.span)+(ri+1));}));
+ const sheet='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><dimension ref="A1:J'+rows.length+'"/><sheetViews><sheetView workbookViewId="0"><pane ySplit="4" topLeftCell="A5" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews><sheetFormatPr defaultRowHeight="20"/><cols><col min="1" max="1" width="14" customWidth="1"/><col min="2" max="2" width="15" customWidth="1"/><col min="3" max="10" width="19" customWidth="1"/></cols><sheetData>'+sheetRows+'</sheetData><autoFilter ref="A4:J'+(4+dates.length)+'"/>'+(mergeRefs.length?'<mergeCells count="'+mergeRefs.length+'">'+mergeRefs.map(r=>'<mergeCell ref="'+r+'"/>').join('')+'</mergeCells>':'')+'<pageMargins left="0.25" right="0.25" top="0.5" bottom="0.5" header="0.2" footer="0.2"/><pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>';
+ const styles='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00;[Red]-#,##0.00"/></numFmts><fonts count="6"><font><sz val="10"/><name val="Aptos"/><color rgb="FF263445"/></font><font><b/><sz val="18"/><name val="Aptos Display"/><color rgb="FFFFFFFF"/></font><font><i/><sz val="11"/><name val="Aptos"/><color rgb="FFFFFFFF"/></font><font><b/><color rgb="FFFFFFFF"/><name val="Aptos"/></font><font><b/><color rgb="FF00804A"/><name val="Aptos"/></font><font><i/><color rgb="FF7F8C9A"/><name val="Aptos"/></font></fonts><fills count="9"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF17365D"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF4472C4"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF305496"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEAF0F8"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE2F0D9"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFDDEBF7"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FF00804A"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top/><bottom style="thin"><color rgb="FFD9E2F3"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="16"><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="3" borderId="0" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="3" fillId="4" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="0" fillId="5" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="5" fillId="5" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="0" fontId="4" fillId="6" borderId="1" xfId="0" applyAlignment="1"><alignment vertical="center"/></xf><xf numFmtId="164" fontId="0" fillId="0" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="164" fontId="4" fillId="6" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="3" fillId="2" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="7" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="164" fontId="1" fillId="3" borderId="1" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="0" fillId="5" borderId="1" xfId="0"/><xf numFmtId="0" fontId="3" fillId="8" borderId="0" xfId="0"/><xf numFmtId="164" fontId="3" fillId="8" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
+ const workbook='<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView/></bookViews><sheets><sheet name="Отчёт" sheetId="1" r:id="rId1"/></sheets></workbook>';
+ const files={
+  '[Content_Types].xml':'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>',
+  '_rels/.rels':'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/></Relationships>',
+  'xl/workbook.xml':workbook,
+  'xl/_rels/workbook.xml.rels':'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>',
+  'xl/worksheets/sheet1.xml':sheet,
+  'xl/styles.xml':styles,
+  'docProps/core.xml':'<?xml version="1.0" encoding="UTF-8" standalone="yes"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:title>'+esc(filename.replace('.xlsx',''))+'</dc:title><dc:creator>Шарик</dc:creator></cp:coreProperties>'
+ };
+ const blob=new Blob([makeZip(files)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});downloadBlob(filename,blob);
+});
+function makeZip(files){
+ const enc=new TextEncoder(),entries=[],central=[];let offset=0;
+ const crcTable=makeZip.crcTable||(makeZip.crcTable=(()=>{const t=[];for(let n=0;n<256;n++){let c=n;for(let k=0;k<8;k++)c=(c&1)?(0xEDB88320^(c>>>1)):(c>>>1);t[n]=c>>>0;}return t;})());
+ const crc32=bytes=>{let c=0xFFFFFFFF;for(let i=0;i<bytes.length;i++)c=crcTable[(c^bytes[i])&255]^(c>>>8);return (c^0xFFFFFFFF)>>>0;};
+ const u16=n=>[n&255,(n>>>8)&255],u32=n=>[n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255];
+ for(const name of Object.keys(files)){
+  const nb=enc.encode(name),data=enc.encode(files[name]),crc=crc32(data),local=new Uint8Array([...u32(0x04034b50),...u16(20),...u16(0x0800),...u16(0),...u16(0),...u16(0),...u32(crc),...u32(data.length),...u32(data.length),...u16(nb.length),...u16(0),...nb,...data]);
+  entries.push(local);central.push(new Uint8Array([...u32(0x02014b50),...u16(20),...u16(20),...u16(0x0800),...u16(0),...u16(0),...u16(0),...u32(crc),...u32(data.length),...u32(data.length),...u16(nb.length),...u16(0),...u16(0),...u16(0),...u16(0),...u32(0),...u32(offset),...nb]));offset+=local.length;
+ }
+ const centralSize=central.reduce((a,b)=>a+b.length,0),end=new Uint8Array([...u32(0x06054b50),...u16(0),...u16(0),...u16(central.length),...u16(central.length),...u32(centralSize),...u32(offset),...u16(0)]);
+ return new Blob([...entries,...central,end],{type:'application/zip'});
+}
+function downloadBlob(name,blob){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);}
+$('exportJson').addEventListener('click',()=>download('backup_shifts_'+todayISO()+'.json',JSON.stringify(data,null,2),'application/json'));
 $('importButton').addEventListener('click',()=>$('importFile').click());
 $('importFile').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;try{const obj=JSON.parse(await f.text());if(!obj||typeof obj.shifts!=='object'||typeof obj.advances!=='object')throw new Error();if(confirm('Импорт заменит текущие данные. Продолжить?')){data=obj;persist();loadDate($('shiftDate').value||previousDateISO());renderAll();alert('Данные импортированы.');}}catch(err){alert('Не удалось импортировать файл. Выбери резервную копию JSON, созданную этим сайтом.');}e.target.value='';});
 function download(name,content,type){const blob=new Blob([content],{type}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);}
