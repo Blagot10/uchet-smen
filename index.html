@@ -99,7 +99,7 @@ $('todayPill').textContent='По умолчанию · '+fmtDate(previousDateISO
 $('shiftDate').value=previousDateISO();
 ['baseSalary','bill','tipsCash','tipsCard','extensions','hookahs'].forEach(id=>$(id).addEventListener('input',updateCalc));
 $('shiftDate').addEventListener('change',()=>{if($('shiftDate').value)loadDate($('shiftDate').value);});
-$('saveShift').addEventListener('click',()=>{const date=$('shiftDate').value;if(!date){alert('Выбери дату смены.');return;}data.shifts[date]={baseSalary:num('baseSalary'),bill:num('bill'),tipsCash:num('tipsCash'),tipsCard:num('tipsCard'),extensions:num('extensions'),hookahs:Math.floor(num('hookahs'))};persist();currentMonth=periodKeyForDate(date);renderAll();$('saveStatus').textContent='Смена за '+fmtDate(date)+' сохранена.';});
+$('saveShift').addEventListener('click',()=>{const date=$('shiftDate').value;if(!date){alert('Выбери дату смены.');return;}data.shifts[date]={baseSalary:num('baseSalary'),bill:num('bill'),tipsCash:num('tipsCash'),tipsCard:num('tipsCard'),extensions:num('extensions'),hookahs:Math.floor(num('hookahs'))};persist();currentMonth=periodKeyForDate(date);renderAll();const stamp=new Date().toISOString().replace(/[:.]/g,'-');download('резервная-копия-смен_'+date+'_'+stamp+'.json',JSON.stringify(data,null,2),'application/json;charset=utf-8');$('saveStatus').textContent='Смена за '+fmtDate(date)+' сохранена. Резервная копия JSON скачана.';});
 $('clearForm').addEventListener('click',()=>{$('baseSalary').value='2000';['bill','tipsCash','tipsCard','extensions','hookahs'].forEach(id=>$(id).value='');updateCalc();});
 $('deleteShift').addEventListener('click',()=>{const date=$('shiftDate').value;if(!date)return;if(!data.shifts[date]){alert('За эту дату нет сохранённой смены.');return;}if(confirm('Удалить сохранённую смену за '+fmtDate(date)+'? День будет считаться выходным.')){delete data.shifts[date];persist();loadDate(date);renderAll();$('saveStatus').textContent='Смена удалена. Эта дата считается выходным.';}});
 $('advance').addEventListener('input',()=>{data.advances[currentMonth]=Math.max(0,Number($('advance').value)||0);persist();renderReport();renderQuick();});
@@ -247,62 +247,58 @@ $('importExcelFile').addEventListener('change',async e=>{
   try{rows=await readXlsxNative(file);}
   catch(nativeError){
    if(!await ensureXLSX())throw nativeError;
-   const workbook=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});const sheet=workbook.Sheets[workbook.SheetNames[0]];if(!sheet)throw new Error('empty');rows=XLSX.utils.sheet_to_json(sheet,{header:1,raw:true,defval:null});
+   const workbook=XLSX.read(await file.arrayBuffer(),{type:'array',cellDates:true});
+   const sheet=workbook.Sheets[workbook.SheetNames[0]];if(!sheet)throw new Error('empty');
+   rows=XLSX.utils.sheet_to_json(sheet,{header:1,raw:true,defval:null});
   }
   if(!rows.length)throw new Error('empty');
-  const header=rows[0].map(v=>String(v??'').trim().toLowerCase().replace(/ё/g,'е'));
-  const dateCol=header.findIndex(v=>/^(дата|число|день)$/.test(v));
+  // This workbook's first column is titled with the month (e.g. "Октябрь"),
+  // while actual dates start in A2. Data columns B:G are base, extensions, bill,
+  // cash tips, card tips and hookahs.
   let yearHint=new Date().getFullYear();
-  // The uploaded tables often have dates like “28 сентября” without a year.
-  // Use the current year, rolling into the next year only across December → January.
+  const title=String(rows[0]?.[0]??'').trim().toLowerCase().replace(/ё/g,'е');
+  const titleMonth=ruMonths[title]||ruMonths[title.replace(/\s.*/,'')];
+  if(titleMonth){const now=new Date();if(titleMonth>now.getMonth()+1&&now.getMonth()+1<=2)yearHint--;}
   const parsed=[];let previousMonth=null,year=yearHint;
   for(let ri=1;ri<rows.length;ri++){
-   const row=rows[ri]||[];const rawDate=row[dateCol>=0?dateCol:0];if(rawDate==null||String(rawDate).trim()==='')continue;
-   let iso=excelDateToISO(rawDate,year);let parsedMonth=null;
-   const dm=String(rawDate).trim().toLowerCase().replace(/ё/g,'е').match(/^(\d{1,2})\s+([а-я]+)/);
-   if(dm&&ruMonths[dm[2]])parsedMonth=ruMonths[dm[2]];
-   if(parsedMonth===1&&previousMonth===12)year++;
-   if(parsedMonth!==null){iso=excelDateToISO(rawDate,year);previousMonth=parsedMonth;}
-   if(!iso){
-    // Skip impossible calendar dates (e.g. “31 сентября”) rather than inventing a date.
-    continue;
-   }
-   const cells=Array.from({length:6},(_,i)=>{const v=row[i+1];return v==null||v===''?0:Number(v)||0;});
-   const hasData=cells.some(v=>v!==0);
-   parsed.push({date:iso,row:row,values:cells,hasData});
+   const row=rows[ri]||[];const rawDate=row[0];
+   if(rawDate==null||String(rawDate).trim()==='')continue;
+   const rawText=String(rawDate).trim().toLowerCase().replace(/ё/g,'е');
+   let monthInDate=null;const dm=rawText.match(/^(\d{1,2})\s+([а-я]+)/i);
+   if(dm&&ruMonths[dm[2]])monthInDate=ruMonths[dm[2]];
+   if(monthInDate===1&&previousMonth===12)year++;
+   let iso=excelDateToISO(rawDate,year);
+   if(monthInDate!==null){iso=excelDateToISO(rawDate,year);previousMonth=monthInDate;}
+   if(!iso)continue; // e.g. the impossible date “31 сентября”
+   const cells=Array.from({length:6},(_,i)=>{const v=row[i+1];if(v==null||v==='')return 0;const n=typeof v==='number'?v:Number(String(v).replace(/\s/g,'').replace(',','.'));return Number.isFinite(n)?Math.max(0,n):0;});
+   parsed.push({date:iso,values:cells,hasData:cells.some(v=>v!==0)});
   }
   if(!parsed.length)throw new Error('no-dates');
-  const dates=parsed.map(x=>x.date).sort();const start=dates[0],end=dates[dates.length-1];
-  // Group dates by the site's reporting periods, not by calendar month.
-  // For example, Sep 28–Oct 25 belongs to the October report.
-  const monthCounts={};dates.forEach(d=>{const k=periodKeyForDate(d);monthCounts[k]=(monthCounts[k]||0)+1;});
-  const dominantMonth=Object.keys(monthCounts).sort((a,b)=>monthCounts[b]-monthCounts[a]||(a===currentMonth?-1:b===currentMonth?1:a.localeCompare(b)))[0];
-  const advancesToImport=[];
-  for(const row of rows){
-   const a=String(row?.[0]??'').trim().toLowerCase();
-   if(a==='аванс'||a==='аванс, ₽') {const n=Number(row[9]);if(Number.isFinite(n)&&n>=0)advancesToImport.push(n);}
-  }
-  // In the supplied format the advance is usually in J2, while the label is in J1.
+  const dateList=parsed.map(x=>x.date).sort();const startDate=dateList[0],endDate=dateList[dateList.length-1];
+  const shiftsToImport={};parsed.forEach(item=>{
+   if(!item.hasData){shiftsToImport[item.date]=null;return;}
+   const [base,ext,bill,cash,card,hooks]=item.values;
+   shiftsToImport[item.date]={baseSalary:base||2000,bill,tipsCash:cash,tipsCard:card,extensions:ext,hookahs:Math.floor(hooks)};
+  });
+  // Pick the report period containing the largest number of imported shifts,
+  // not the largest number of calendar rows. This avoids choosing an empty report.
+  const shiftCounts={};Object.entries(shiftsToImport).forEach(([date,shift])=>{if(shift){const key=periodKeyForDate(date);shiftCounts[key]=(shiftCounts[key]||0)+1;}});
+  let dominantMonth=Object.keys(shiftCounts).sort((a,b)=>shiftCounts[b]-shiftCounts[a]||(a===currentMonth?-1:b===currentMonth?1:a.localeCompare(b)))[0];
+  if(!dominantMonth){dominantMonth=titleMonth?`${yearHint}-${String(titleMonth).padStart(2,'0')}`:periodKeyForDate(startDate);}
   let advanceValue=null;
   if(rows[0]&&String(rows[0][9]??'').trim().toLowerCase().includes('аванс')){
-   for(let i=1;i<Math.min(rows.length,5);i++){const n=Number(rows[i]?.[9]);if(rows[i]?.[9]!=null&&rows[i]?.[9]!==''&&Number.isFinite(n)&&n>=0){advanceValue=n;break;}}
+   for(let i=1;i<Math.min(rows.length,5);i++){const raw=rows[i]?.[9];if(raw!==null&&raw!==undefined&&raw!==''){const n=Number(raw);if(Number.isFinite(n)&&n>=0){advanceValue=n;break;}}}
   }
-  if(advanceValue===null&&advancesToImport.length)advanceValue=advancesToImport[0];
-  const shiftsToImport={};parsed.forEach(item=>{
-   const [base,ext,bill,cash,card,hooks]=item.values;
-   if(!item.hasData){shiftsToImport[item.date]=null;return;}
-   shiftsToImport[item.date]={baseSalary:base,bill:bill,tipsCash:cash,tipsCard:card,extensions:ext,hookahs:Math.floor(Math.max(0,hooks))};
-  });
-  const dateRangeLabel=fmtDate(start)+' — '+fmtDate(end);
-  if(!confirm('Импортировать таблицу «'+file.name+'» за '+dateRangeLabel+'?\n\nДанные смен внутри этого диапазона будут заменены данными из Excel, пустые строки станут выходными. Смены вне диапазона останутся без изменений.'))return;
+  const confirmText='Импортировать «'+file.name+'» за '+fmtDate(startDate)+' — '+fmtDate(endDate)+'?\n\nРаспознано дат: '+parsed.length+'; смен с данными: '+Object.values(shiftsToImport).filter(Boolean).length+'.\nДанные внутри диапазона будут заменены; пустые даты станут выходными. Смены вне диапазона сохранятся.';
+  if(!confirm(confirmText))return;
   let importedShifts=0;
-  parsed.forEach(item=>{const shift=shiftsToImport[item.date];if(shift){data.shifts[item.date]=shift;importedShifts++;}else delete data.shifts[item.date];});
+  Object.entries(shiftsToImport).forEach(([date,shift])=>{if(shift){data.shifts[date]=shift;importedShifts++;}else delete data.shifts[date];});
   if(advanceValue!==null)data.advances[dominantMonth]=advanceValue;
   persist();currentMonth=dominantMonth;loadDate(previousDateISO());renderAll();
-  const visibleImportedShifts=Object.keys(data.shifts).filter(d=>{const b=periodBounds(dominantMonth);return d>=b.start&&d<=b.end;}).length;
-  if(visibleImportedShifts===0)throw new Error('Импорт прочитан, но в выбранном отчётном периоде нет сохранённых смен. Проверь структуру колонок файла.');
-  alert('Импорт завершён.\nРаспознано дат: '+parsed.length+'.\nСмен с данными: '+importedShifts+'.\nСмен в отчёте «'+dominantMonth+'»: '+visibleImportedShifts+'.\nОткрыт отчётный период: '+dominantMonth+'.'+(advanceValue!==null?'\nАванс: '+money(advanceValue)+'.':'')+'\nНекорректные даты вроде «31 сентября» пропущены.');
- }catch(err){console.error('Excel import error:',err);alert(err.message==='no-dates'?'В файле не удалось найти корректные даты. Проверь, что даты записаны в первом столбце, например «28 сентября».':'Не удалось прочитать таблицу Excel: '+(err&&err.message?err.message:'неизвестная ошибка')+'. Нужен .xlsx с датами в первом столбце и данными в столбцах «Смена», «Продление», «Счёт», «Чай», «Чай б/н», «Кальяны шт.».');}
+  const bounds=periodBounds(dominantMonth);
+  const visibleImportedShifts=Object.keys(shiftsToImport).filter(date=>shiftsToImport[date]&&date>=bounds.start&&date<=bounds.end).length;
+  alert('Импорт завершён.\nРаспознано дат: '+parsed.length+'.\nИмпортировано смен: '+importedShifts+'.\nСмен в открытом отчёте: '+visibleImportedShifts+'.\nОтчёт: '+dominantMonth+' ('+fmtDate(bounds.start)+' — '+fmtDate(bounds.end)+').'+(advanceValue!==null?'\nАванс: '+money(advanceValue)+'.':'')+'\nНекорректные даты пропущены.');
+ }catch(err){console.error('Excel import error:',err);alert(err.message==='no-dates'?'В файле не удалось найти корректные даты. Ожидается дата в первом столбце, например «28 сентября».':'Не удалось прочитать таблицу Excel: '+(err&&err.message?err.message:'неизвестная ошибка')+'. Выбери файл .xlsx с датами в первом столбце и данными в столбцах B–G.');}
  finally{e.target.value='';}
 });
 $('importFile').addEventListener('change',async e=>{const f=e.target.files[0];if(!f)return;try{const obj=JSON.parse(await f.text());if(!obj||typeof obj.shifts!=='object'||typeof obj.advances!=='object')throw new Error();if(confirm('Импорт заменит текущие данные. Продолжить?')){data=obj;persist();loadDate($('shiftDate').value||previousDateISO());renderAll();alert('Данные импортированы.');}}catch(err){alert('Не удалось импортировать файл. Выбери резервную копию JSON, созданную этим сайтом.');}e.target.value='';});
